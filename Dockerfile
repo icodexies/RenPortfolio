@@ -3,9 +3,21 @@ FROM node:20-alpine AS frontend
 
 WORKDIR /app
 
+# Need composer + php to install ziggy vendor files
+RUN apk add --no-cache php83 php83-phar php83-mbstring php83-openssl php83-tokenizer \
+    && ln -sf /usr/bin/php83 /usr/bin/php
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+# Install PHP deps first (ziggy lives in vendor/)
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-scripts --no-autoloader --ignore-platform-reqs
+
+# Install JS deps
 COPY package*.json ./
 RUN npm ci --prefer-offline
 
+# Copy source and build
 COPY . .
 
 RUN npm run build
