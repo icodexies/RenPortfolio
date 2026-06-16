@@ -5,7 +5,8 @@
     class="fixed inset-0 z-0 opacity-0 transition-opacity duration-700"
     :class="{ '!opacity-100': showBg }"
   >
-    <AnimatedBackground :galaxies="adaptiveGalaxies" />
+    <!-- FIX #2: Pass performanceTier down so Background.vue uses the same tier -->
+    <AnimatedBackground :galaxies="adaptiveGalaxies" :tier="performanceTier" />
   </div>
 
   <!-- Page content (unaffected by background fade) -->
@@ -104,11 +105,11 @@ const titleRef = ref(null)
 const subtitleRef = ref(null) 
 const contactRef = ref(null)
 const actionRef = ref(null)
-const showBg = ref(false)          // controls galaxy fade‑in
+const showBg = ref(false)
 
 let activeAnimations = []
 
-// ---------- Performance detection (immediate, no flash) ----------
+// ---------- Performance detection ----------
 const detectTier = () => {
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const cores = navigator.hardwareConcurrency || 4
@@ -120,18 +121,14 @@ const detectTier = () => {
   return 'high'
 }
 
-const performanceTier = ref(detectTier())   // correct from the first frame
+// FIX #2: Expose performanceTier as a ref so it can be passed to AnimatedBackground
+const performanceTier = ref(detectTier())
 
 const isLowSpec = computed(() => performanceTier.value === 'low')
 const isMediumSpec = computed(() => performanceTier.value === 'medium')
 
-// Adaptive galaxies – right size from the start
+// Adaptive galaxies sized to match the tier
 const adaptiveGalaxies = computed(() => {
-  const original = [
-    { x: 0.2, y: 0.3, hue: 260, size: 1 },
-    { x: 0.8, y: 0.75, hue: 200, size: 0.7 }
-  ]
-
   if (isLowSpec.value) {
     return [{ x: 0.5, y: 0.5, hue: 240, size: 0.2 }]
   }
@@ -141,20 +138,20 @@ const adaptiveGalaxies = computed(() => {
       { x: 0.8, y: 0.75, hue: 200, size: 0.45 }
     ]
   }
-  return original
+  return [
+    { x: 0.2, y: 0.3, hue: 260, size: 1 },
+    { x: 0.8, y: 0.75, hue: 200, size: 0.7 }
+  ]
 })
 
 onMounted(() => {
-  // Fade in the galaxies with a tiny delay for canvas init
   setTimeout(() => {
     showBg.value = true
   }, 20)
 
-  // Content animations (only on medium/high spec)
   if (!isLowSpec.value) {
     const customEasing = [0.16, 1, 0.3, 1]
 
-    // Set initial hidden state
     const elements = [
       { ref: badgeRef, y: 20 },
       { ref: titleRef, y: 30 },
@@ -169,16 +166,15 @@ onMounted(() => {
       }
     })
 
-    // Create staggered animations and store for cleanup
-    const anim1 = animate(badgeRef.value, { opacity: [0, 1], y: [20, 0] }, { duration: 0.5, easing: customEasing })
-    const anim2 = animate(titleRef.value, { opacity: [0, 1], y: [30, 0] }, { duration: 0.6, delay: 0.1, easing: customEasing })
+    const anim1 = animate(badgeRef.value,    { opacity: [0, 1], y: [20, 0] }, { duration: 0.5, easing: customEasing })
+    const anim2 = animate(titleRef.value,    { opacity: [0, 1], y: [30, 0] }, { duration: 0.6, delay: 0.1, easing: customEasing })
     const anim3 = animate(subtitleRef.value, { opacity: [0, 1], y: [20, 0] }, { duration: 0.5, delay: 0.2, easing: customEasing })
-    const anim4 = animate(contactRef.value, { opacity: [0, 1], y: [15, 0] }, { duration: 0.5, delay: 0.3, easing: customEasing })
-    const anim5 = animate(actionRef.value, { opacity: [0, 1], y: [15, 0] }, { duration: 0.5, delay: 0.4, easing: customEasing })
+    const anim4 = animate(contactRef.value,  { opacity: [0, 1], y: [15, 0] }, { duration: 0.5, delay: 0.3, easing: customEasing })
+    const anim5 = animate(actionRef.value,   { opacity: [0, 1], y: [15, 0] }, { duration: 0.5, delay: 0.4, easing: customEasing })
 
     activeAnimations = [anim1, anim2, anim3, anim4, anim5]
   } else {
-    // Low spec: all elements visible immediately
+    // Low spec: all elements visible immediately, no animation
     [badgeRef, titleRef, subtitleRef, contactRef, actionRef].forEach(ref => {
       if (ref.value) {
         ref.value.style.opacity = '1'

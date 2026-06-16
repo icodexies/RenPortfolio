@@ -17,16 +17,23 @@ const props = defineProps({
   galaxies: {
     type: Array,
     default: () => [{ x: 0.5, y: 0.5, hue: 260, size: 1 }]
+  },
+  // FIX #1: Accept tier from parent so both components always agree
+  tier: {
+    type: String,
+    default: null
   }
 })
 
 const canvasRef = ref(null)
 
 // ─── Quality tiers ──────────────────────────────────────────────────────
+// FIX #3: low tier now has animate: true with minimal star count
+// so the draw loop actually runs and particles are visible on phones
 const TIERS = {
   high:   { starCount: 180, pointsPerArm: 130, nebulaCount: 3, dprCap: 1.5, shootingStars: true,  animate: true },
   medium: { starCount: 90,  pointsPerArm: 60,  nebulaCount: 1, dprCap: 1,   shootingStars: true,  animate: true },
-  low:    { starCount: 40,  pointsPerArm: 0,   nebulaCount: 1, dprCap: 1,   shootingStars: false, animate: false }
+  low:    { starCount: 25,  pointsPerArm: 0,   nebulaCount: 1, dprCap: 1,   shootingStars: false, animate: true }
 }
 
 function detectInitialTier() {
@@ -47,24 +54,27 @@ onMounted(() => {
   let animationFrameId = null
   let t = 0
 
-  let tierName = detectInitialTier()
+  // FIX #1: Use the tier passed in from parent, fall back to local detection
+  let tierName = props.tier ?? detectInitialTier()
   let tier = TIERS[tierName]
 
-  // ─── Live FPS sampling to auto‑downgrade if struggling ────────────────
+  // ─── Live FPS sampling to auto-downgrade if struggling ────────────────
+  // FIX #4: Wider sample window (2000ms) and lower thresholds so phones
+  // don't get immediately demoted during the busy page-load burst
   let frameCount = 0
   let benchmarkStart = performance.now()
-  let benchmarkDone = tierName === 'low'
+  let benchmarkDone = false
 
   function sampleFrame(now) {
     frameCount++
     if (benchmarkDone) return
     const elapsed = now - benchmarkStart
-    if (elapsed >= 1200) {
+    if (elapsed >= 2000) {
       const fps = (frameCount / elapsed) * 1000
       benchmarkDone = true
-      if (fps < 30 && tierName !== 'low') {
+      if (fps < 20 && tierName !== 'low') {
         applyTier('low')
-      } else if (fps < 45 && tierName === 'high') {
+      } else if (fps < 35 && tierName === 'high') {
         applyTier('medium')
       }
     }
@@ -174,17 +184,16 @@ onMounted(() => {
         glowCtx.fillRect(0, 0, W, H)
       }
 
-      if (!tier.animate) {
-        const glowR = glowCtx.createRadialGradient(gx, gy, 0, gx, gy, 60 * sizeMult)
-        glowR.addColorStop(0, 'rgba(255,230,180,0.9)')
-        glowR.addColorStop(0.3, 'rgba(255,180,100,0.5)')
-        glowR.addColorStop(0.7, `hsla(${hue}, 80%, 60%, 0.2)`)
-        glowR.addColorStop(1, 'rgba(0,0,0,0)')
-        glowCtx.fillStyle = glowR
-        glowCtx.beginPath()
-        glowCtx.arc(gx, gy, 60 * sizeMult, 0, Math.PI * 2)
-        glowCtx.fill()
-      }
+      // Static core glow (used as base in all tiers since animate is always true now)
+      const glowR = glowCtx.createRadialGradient(gx, gy, 0, gx, gy, 60 * sizeMult)
+      glowR.addColorStop(0, 'rgba(255,230,180,0.9)')
+      glowR.addColorStop(0.3, 'rgba(255,180,100,0.5)')
+      glowR.addColorStop(0.7, `hsla(${hue}, 80%, 60%, 0.2)`)
+      glowR.addColorStop(1, 'rgba(0,0,0,0)')
+      glowCtx.fillStyle = glowR
+      glowCtx.beginPath()
+      glowCtx.arc(gx, gy, 60 * sizeMult, 0, Math.PI * 2)
+      glowCtx.fill()
     }
   }
 
@@ -194,7 +203,7 @@ onMounted(() => {
     W = parent.clientWidth
     H = parent.clientHeight
 
-    if (W === 0 || H === 0) return // skip until the parent has a real size
+    if (W === 0 || H === 0) return
 
     canvas.width = W * dpr
     canvas.height = H * dpr
@@ -211,11 +220,8 @@ onMounted(() => {
     tier = TIERS[tierName]
     resizeCanvas()
 
-    if (!tier.animate && animationFrameId) {
-      cancelAnimationFrame(animationFrameId)
-      animationFrameId = null
-      render()
-    } else if (tier.animate && !animationFrameId) {
+    // FIX #3: Since all tiers now have animate: true, we just ensure the loop is running
+    if (!animationFrameId) {
       animationFrameId = requestAnimationFrame(render)
     }
   }
@@ -262,8 +268,6 @@ onMounted(() => {
 
     ctx.globalAlpha = 1
     ctx.drawImage(glowCanvas, 0, 0, W, H)
-
-    if (!tier.animate) return
 
     const mcx = mouse.x ?? W / 2
     const mcy = mouse.y ?? H / 2
@@ -355,13 +359,12 @@ onMounted(() => {
   const handleVisibility = () => {
     if (document.hidden) {
       if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null }
-    } else if (tier.animate && !animationFrameId) {
+    } else if (!animationFrameId) {
       animationFrameId = requestAnimationFrame(render)
     }
   }
   document.addEventListener('visibilitychange', handleVisibility)
 
-  // ─── ResizeObserver ensures particles appear even if layout is delayed ────
   const parent = canvas.parentElement
   let resizeObserver = null
   if (window.ResizeObserver) {
@@ -373,15 +376,9 @@ onMounted(() => {
     window.addEventListener('resize', resizeCanvas)
   }
 
-  // Initial draw – if dimensions are already available, draw immediately
-  // Otherwise the observer will fire when the parent gets its size
   requestAnimationFrame(() => {
     resizeCanvas()
-    if (tier.animate) {
-      if (!animationFrameId) animationFrameId = requestAnimationFrame(render)
-    } else {
-      render()
-    }
+    if (!animationFrameId) animationFrameId = requestAnimationFrame(render)
   })
 
   onUnmounted(() => {
