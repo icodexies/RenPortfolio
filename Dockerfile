@@ -3,13 +3,30 @@ FROM node:20 AS frontend
 
 WORKDIR /app
 
+# ------------------------------------------------------------
+# 🔧 Receive VITE_ variables from Render's build arguments
+# ------------------------------------------------------------
+ARG VITE_APP_NAME
+# 👇 Add one ARG for every other VITE_ variable your code uses, e.g.:
+# ARG VITE_APP_URL
+# ARG VITE_PUSHER_APP_KEY
+
+# Convert ARGs to ENVs so Vite can see them during build
+ENV VITE_APP_NAME=$VITE_APP_NAME
+# ENV VITE_APP_URL=$VITE_APP_URL
+# ENV VITE_PUSHER_APP_KEY=$VITE_PUSHER_APP_KEY
+
+# ------------------------------------------------------------
 COPY package*.json ./
-RUN npm install
+RUN npm ci               # safer for CI (respects lock file)
 
 COPY . .
 
-# Fix: increase Node memory for Vite/Rolldown build (important for Render)
-RUN NODE_OPTIONS="--max-old-space-size=4096" npm run build
+# Debug: show all VITE_ variables right before build
+RUN printenv | grep VITE_
+
+# Build with verbose output and increased memory
+RUN NODE_OPTIONS="--max-old-space-size=4096" VITE_LOG_LEVEL=info npm run build -- --debug
 
 
 # Stage 2 - Backend (Laravel + PHP + Composer)
@@ -28,7 +45,7 @@ WORKDIR /var/www
 # Copy backend files
 COPY . .
 
-# Copy built frontend assets
+# Copy built frontend assets from stage 1
 COPY --from=frontend /app/public/dist ./public/dist
 
 # Install PHP dependencies
