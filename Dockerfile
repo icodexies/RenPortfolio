@@ -1,10 +1,15 @@
 # Stage 1 - Build Frontend (Vite)
-FROM node:18 AS frontend
+FROM node:20 AS frontend
+
 WORKDIR /app
+
 COPY package*.json ./
 RUN npm install
+
 COPY . .
+
 RUN npm run build
+
 
 # Stage 2 - Backend (Laravel + PHP + Composer)
 FROM php:8.2-fpm AS backend
@@ -28,7 +33,7 @@ COPY --from=frontend /app/public/dist ./public/dist
 # Install PHP dependencies
 RUN composer install --no-dev --optimize-autoloader
 
-# Laravel setup
+# Laravel setup (safe in production builds)
 RUN php artisan config:clear && \
     php artisan route:clear && \
     php artisan view:clear
