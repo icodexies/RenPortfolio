@@ -25,6 +25,10 @@ watch(isMobileMenuOpen, async (isOpen) => {
     )
   }
 })
+
+const isActive = (routeName) => {
+  return route().current(routeName)
+}
 </script>
 
 <template>
@@ -45,11 +49,12 @@ watch(isMobileMenuOpen, async (isOpen) => {
             </span>
           </div>
 
+          <!-- Desktop navigation with refined active state -->
           <div class="hidden md:flex items-center space-x-1">
-            <a :href="route('home')"      class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-400 hover:text-white hover:bg-white/[0.06] transition-all">Home</a>
-            <a :href="route('project')"   class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-400 hover:text-white hover:bg-white/[0.06] transition-all">Projects</a>
-            <a :href="route('techStack')"      class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-400 hover:text-white hover:bg-white/[0.06] transition-all">Tech Stack</a>
-            <a :href="route('resume')" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-400 hover:text-white hover:bg-white/[0.06] transition-all">Resume</a>
+            <a :href="route('home')"      :class="['nav-link', { 'nav-link--active': isActive('home') }]">Home</a>
+            <a :href="route('project')"   :class="['nav-link', { 'nav-link--active': isActive('project') }]">Projects</a>
+            <a :href="route('techStack')" :class="['nav-link', { 'nav-link--active': isActive('techStack') }]">Tech Stack</a>
+            <a :href="route('resume')"    :class="['nav-link', { 'nav-link--active': isActive('resume') }]">Resume</a>
           </div>
 
           <div class="hidden md:flex items-center gap-4">
@@ -63,6 +68,7 @@ watch(isMobileMenuOpen, async (isOpen) => {
             </a>
           </div>
 
+          <!-- Mobile menu button -->
           <div class="flex md:hidden">
             <button
               @click="toggleMobileMenu"
@@ -78,6 +84,7 @@ watch(isMobileMenuOpen, async (isOpen) => {
         </div>
       </nav>
 
+      <!-- Mobile menu -->
       <div
         v-show="isMobileMenuOpen"
         ref="mobileMenuRef"
@@ -87,8 +94,8 @@ watch(isMobileMenuOpen, async (isOpen) => {
         <div class="px-3 pt-3 pb-4 space-y-1">
           <a @click="isMobileMenuOpen = false" :href="route('home')"      class="block px-4 py-2.5 rounded-md text-base font-medium text-slate-300 hover:bg-white/[0.06] hover:text-white transition-colors">Home</a>
           <a @click="isMobileMenuOpen = false" :href="route('project')"   class="block px-4 py-2.5 rounded-md text-base font-medium text-slate-300 hover:bg-white/[0.06] hover:text-white transition-colors">Projects</a>
-          <a @click="isMobileMenuOpen = false" :href="route('techStack')"      class="block px-4 py-2.5 rounded-md text-base font-medium text-slate-300 hover:bg-white/[0.06] hover:text-white transition-colors">Tech Stack</a>
-          <a @click="isMobileMenuOpen = false" :href="route('resume')" class="block px-4 py-2.5 rounded-md text-base font-medium text-slate-300 hover:bg-white/[0.06] hover:text-white transition-colors">Contact</a>
+          <a @click="isMobileMenuOpen = false" :href="route('techStack')" class="block px-4 py-2.5 rounded-md text-base font-medium text-slate-300 hover:bg-white/[0.06] hover:text-white transition-colors">Tech Stack</a>
+          <a @click="isMobileMenuOpen = false" :href="route('resume')"    class="block px-4 py-2.5 rounded-md text-base font-medium text-slate-300 hover:bg-white/[0.06] hover:text-white transition-colors">Contact</a>
           <div class="pt-4 pb-2 border-t border-white/[0.06] mt-2 px-4">
             <a
               @click="isMobileMenuOpen = false"
@@ -109,7 +116,7 @@ watch(isMobileMenuOpen, async (isOpen) => {
     </main>
 
     <footer class="relative overflow-hidden border-t border-white/[0.06] bg-[#030712]/60 backdrop-blur-xl mt-auto">
-
+      <!-- footer content unchanged -->
       <div class="absolute -top-24 left-1/4 w-96 h-96 bg-indigo-600/8 rounded-full blur-3xl pointer-events-none"></div>
       <div class="absolute -bottom-24 right-1/4 w-96 h-96 bg-orange-600/5 rounded-full blur-3xl pointer-events-none"></div>
 
@@ -162,6 +169,52 @@ watch(isMobileMenuOpen, async (isOpen) => {
         </div>
       </div>
     </footer>
-
   </div>
 </template>
+
+<style scoped>
+/* Base nav link */
+.nav-link {
+  position: relative;
+  padding: 0.5rem 1rem;
+  border-radius: 0.75rem; /* slightly more rounded */
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #94a3b8;
+  transition: all 0.25s ease;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.nav-link:hover {
+  color: #fff;
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Active link – special badge style */
+.nav-link--active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+
+}
+.nav-link:not(.nav-link--active)::after {
+  content: '';
+  position: absolute;
+  bottom: 6px;
+  left: 1rem;
+  right: 1rem;
+  height: 2px;
+  background: linear-gradient(to right, #f97316, #e11d48, #6366f1);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.nav-link:not(.nav-link--active):hover::after {
+  transform: scaleX(1);
+}
+</style>

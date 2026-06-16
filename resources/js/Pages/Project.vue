@@ -1,9 +1,15 @@
 <template>
-  <AnimatedBackground :galaxies="[
-    { x: 0.25, y: 0.20, hue: 260, size: 0.5 },
-    { x: 0.85, y: 0.7,  hue: 220, size: 0.4 },
-    { x: 0.25, y: 0.9,  hue: 220, size: 0.4 },
-  ]">
+  <!-- Background layer (galaxies only) fades in independently -->
+  <div
+    ref="bgFadeRef"
+    class="fixed inset-0 z-0 opacity-0 transition-opacity duration-700"
+    :class="{ '!opacity-100': showBg }"
+  >
+    <AnimatedBackground :galaxies="adaptiveGalaxies" />
+  </div>
+
+  <!-- Page content (unaffected by background fade) -->
+  <div class="relative z-10">
     <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28">
 
       <div ref="headerRef" class="text-center mb-16 md:mb-20">
@@ -58,7 +64,7 @@
             <p class="text-[13px] text-slate-400/80 leading-relaxed mb-4">Centralized file management platform with role-based access control, version history, and audit trails for institutional document workflows.</p>
             
             <div class="flex flex-wrap gap-1.5">
-              <span v-for="tech in ['Laravel', 'Vue.js', 'MySQL', 'Tailwind']" :key="tech" class="rounded-md border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-[10px] font-semibold text-slate-400">{{ tech }}</span>
+              <span v-for="tech in ['Php', 'Alpine Js', 'MySQL', 'Tailwind', 'javascript', 'Html', 'Css']" :key="tech" class="rounded-md border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-[10px] font-semibold text-slate-400">{{ tech }}</span>
             </div>
           </template>
         </ProjectCard>
@@ -72,7 +78,6 @@
           :delay="0.08"
           status="Live"
           githubUrl="#"
-          
         >
           <template #header-content>
             <div class="flex flex-col items-center justify-center h-full w-full bg-amber-950/20 text-center p-4">
@@ -90,7 +95,7 @@
             <p class="text-[13px] text-slate-400/80 leading-relaxed mb-4">End-to-end library operations platform with catalog search and borrowing workflows.</p>
             
             <div class="flex flex-wrap gap-1.5">
-              <span v-for="tech in ['Vue.js', 'Node.js', 'PostgreSQL', 'Tailwind']" :key="tech" class="rounded-md border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-[10px] font-semibold text-slate-400">{{ tech }}</span>
+              <span v-for="tech in ['Tailwind', 'Php', 'AlpineJs', 'Mysql', 'Javascript', 'Html', 'Css']" :key="tech" class="rounded-md border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-[10px] font-semibold text-slate-400">{{ tech }}</span>
             </div>
           </template>
         </ProjectCard>
@@ -103,7 +108,8 @@
           :index="2" 
           :delay="0.16"
           status="Live"
-          githubUrl="#"
+          githubUrl="https://github.com/icodexies/RenPortfolio"
+          liveUrl="https://renportfolio.onrender.com"
         >
           <template #header-content>
             <div class="flex flex-col items-center justify-center h-full w-full bg-cyan-950/20 text-center p-4 relative overflow-hidden">
@@ -121,7 +127,7 @@
             <p class="text-[13px] text-slate-400/80 leading-relaxed mb-4">Personal portfolio with interactive canvas simulations, hardware accelerated math mechanics, and custom responsive layouts.</p>
             
             <div class="flex flex-wrap gap-1.5">
-              <span v-for="tech in ['Vue.js', 'Motion', 'Tailwind', 'HTML5 Canvas']" :key="tech" class="rounded-md border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-[10px] font-semibold text-slate-400">{{ tech }}</span>
+              <span v-for="tech in ['Vue.js', 'Laravel', 'Tailwind', 'Inertia Js', 'Vite']" :key="tech" class="rounded-md border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-[10px] font-semibold text-slate-400">{{ tech }}</span>
             </div>
           </template>
         </ProjectCard>
@@ -131,7 +137,7 @@
       <div v-if="isGridEmpty" class="text-center py-24 text-slate-600 text-sm">No projects in this category yet.</div>
 
     </section>
-  </AnimatedBackground>
+  </div>
 </template>
 
 <script setup>
@@ -143,6 +149,7 @@ import ProjectCard from '@/components/Card.vue'
 
 const headerRef = ref(null)
 const filtersRef = ref(null)
+const showBg = ref(false)          // controls galaxy fade‑in
 
 const filters = ['All', 'Full-Stack', 'Frontend', 'Backend']
 const activeFilter = ref('All')
@@ -153,24 +160,72 @@ const isGridEmpty = computed(() => activeFilter.value === 'Backend')
 // Track active animations for pristine HMR cleanup
 let activeAnimations = []
 
-onMounted(() => {
-  const easing = [0.16, 1, 0.3, 1]
+// ---------- Performance detection (immediate) ----------
+const detectTier = () => {
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const cores = navigator.hardwareConcurrency || 4
+  const memory = navigator.deviceMemory || 4
 
-  // Setup predictable javascript state initialization before running keyframes
-  if (headerRef.value) {
-    headerRef.value.style.opacity = '0'
-    headerRef.value.style.transform = 'translateY(20px)'
-    
-    const anim = animate(headerRef.value, { opacity: [0, 1], y: [20, 0] }, { duration: 0.55, easing })
-    activeAnimations.push(anim)
+  if (reduceMotion) return 'low'
+  if (cores <= 2 || memory <= 2) return 'low'
+  if (cores <= 4 || memory <= 4) return 'medium'
+  return 'high'
+}
+
+const performanceTier = ref(detectTier())   // correct from the first frame
+const isLowSpec = computed(() => performanceTier.value === 'low')
+const isMediumSpec = computed(() => performanceTier.value === 'medium')
+
+// Adaptive galaxies – right size from the start
+const adaptiveGalaxies = computed(() => {
+  const original = [
+    { x: 0.25, y: 0.20, hue: 260, size: 0.5 },
+    { x: 0.85, y: 0.7,  hue: 220, size: 0.4 },
+    { x: 0.25, y: 0.9,  hue: 220, size: 0.4 },
+  ]
+
+  if (isLowSpec.value) {
+    // Only one tiny galaxy on low‑spec phones
+    return [{ x: 0.5, y: 0.5, hue: 240, size: 0.2 }]
   }
+  if (isMediumSpec.value) {
+    // Slightly smaller than original
+    return [
+      { x: 0.25, y: 0.20, hue: 260, size: 0.35 },
+      { x: 0.85, y: 0.7,  hue: 220, size: 0.3 },
+      { x: 0.25, y: 0.9,  hue: 220, size: 0.3 },
+    ]
+  }
+  return original
+})
 
-  if (filtersRef.value) {
-    filtersRef.value.style.opacity = '0'
-    filtersRef.value.style.transform = 'translateY(12px)'
-    
-    const anim = animate(filtersRef.value, { opacity: [0, 1], y: [12, 0] }, { duration: 0.45, delay: 0.12, easing })
-    activeAnimations.push(anim)
+onMounted(() => {
+  // Fade in the galaxies with a tiny delay for canvas init
+  setTimeout(() => {
+    showBg.value = true
+  }, 20)
+
+  // Content animations (only on medium/high spec)
+  if (!isLowSpec.value) {
+    const easing = [0.16, 1, 0.3, 1]
+
+    if (headerRef.value) {
+      headerRef.value.style.opacity = '0'
+      headerRef.value.style.transform = 'translateY(20px)'
+      const anim = animate(headerRef.value, { opacity: [0, 1], y: [20, 0] }, { duration: 0.55, easing })
+      activeAnimations.push(anim)
+    }
+
+    if (filtersRef.value) {
+      filtersRef.value.style.opacity = '0'
+      filtersRef.value.style.transform = 'translateY(12px)'
+      const anim = animate(filtersRef.value, { opacity: [0, 1], y: [12, 0] }, { duration: 0.45, delay: 0.12, easing })
+      activeAnimations.push(anim)
+    }
+  } else {
+    // Low spec – instant visibility
+    if (headerRef.value) headerRef.value.style.opacity = '1'
+    if (filtersRef.value) filtersRef.value.style.opacity = '1'
   }
 })
 

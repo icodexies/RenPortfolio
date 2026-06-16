@@ -6,7 +6,7 @@ import { ZiggyVue } from '../../vendor/tightenco/ziggy';
 import.meta.glob(['../images/**']);
 
 createInertiaApp({
-    title: (title) => `Ren Portfolio - ${title} Page`,
+    title: (title) => `Icodexies - ${title} Page`,
     resolve: name => {
         const pages = import.meta.glob('./Pages/**/*.vue', {eager: true });
         let page = pages[`./Pages/${name}.vue`];

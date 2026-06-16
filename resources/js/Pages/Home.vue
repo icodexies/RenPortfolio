@@ -1,11 +1,18 @@
 <template>
-  <AnimatedBackground :galaxies="[
-  { x: 0.2, y: 0.3, hue: 260, size: 1 },
-  { x: 0.8, y: 0.75, hue: 200, size: 0.7 }
-]">
+  <!-- Background layer (galaxies only) fades in independently -->
+  <div
+    ref="bgFadeRef"
+    class="fixed inset-0 z-0 opacity-0 transition-opacity duration-700"
+    :class="{ '!opacity-100': showBg }"
+  >
+    <AnimatedBackground :galaxies="adaptiveGalaxies" />
+  </div>
+
+  <!-- Page content (unaffected by background fade) -->
+  <div class="relative z-10">
     <div class="relative min-h-[calc(100vh-5rem)] flex items-center justify-center overflow-hidden px-4 sm:px-6 lg:px-8">
       
-      <div class="max-w-4xl mx-auto text-center relative z-10 space-y-10">
+      <div class="max-w-4xl mx-auto text-center relative space-y-10">
         
         <div 
           ref="badgeRef"
@@ -82,46 +89,108 @@
 
       </div>
     </div>
-  </AnimatedBackground>
+  </div>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { animate } from 'motion' 
 import { Icon } from '@iconify/vue'
-import AnimatedBackground from '@/components/Background.vue' // Adjust path based on your folder structure
+import AnimatedBackground from '@/components/Background.vue'
 
-// Entry Animation Component Targets
+// Ref targets for animations
 const badgeRef = ref(null)
 const titleRef = ref(null)
 const subtitleRef = ref(null) 
 const contactRef = ref(null)
 const actionRef = ref(null)
+const showBg = ref(false)          // controls galaxy fade‑in
 
-onMounted(() => {
-  const customEasing = [0.16, 1, 0.3, 1]
+let activeAnimations = []
 
-  // Setup initial states
-  const animatedElements = [
-    { ref: badgeRef, y: 20 },
-    { ref: titleRef, y: 30 },
-    { ref: subtitleRef, y: 20 },
-    { ref: contactRef, y: 15 },
-    { ref: actionRef, y: 15 }
+// ---------- Performance detection (immediate, no flash) ----------
+const detectTier = () => {
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const cores = navigator.hardwareConcurrency || 4
+  const memory = navigator.deviceMemory || 4
+
+  if (reduceMotion) return 'low'
+  if (cores <= 2 || memory <= 2) return 'low'
+  if (cores <= 4 || memory <= 4) return 'medium'
+  return 'high'
+}
+
+const performanceTier = ref(detectTier())   // correct from the first frame
+
+const isLowSpec = computed(() => performanceTier.value === 'low')
+const isMediumSpec = computed(() => performanceTier.value === 'medium')
+
+// Adaptive galaxies – right size from the start
+const adaptiveGalaxies = computed(() => {
+  const original = [
+    { x: 0.2, y: 0.3, hue: 260, size: 1 },
+    { x: 0.8, y: 0.75, hue: 200, size: 0.7 }
   ]
 
-  animatedElements.forEach(item => {
-    if (item.ref.value) {
-      item.ref.value.style.opacity = '0'
-      item.ref.value.style.transform = `translateY(${item.y}px)`
-    }
-  })
+  if (isLowSpec.value) {
+    return [{ x: 0.5, y: 0.5, hue: 240, size: 0.2 }]
+  }
+  if (isMediumSpec.value) {
+    return [
+      { x: 0.2, y: 0.3, hue: 260, size: 0.6 },
+      { x: 0.8, y: 0.75, hue: 200, size: 0.45 }
+    ]
+  }
+  return original
+})
 
-  /* --- STAGGERED ENTRANCE SEQUENCE --- */
-  animate(badgeRef.value, { opacity: [0, 1], y: [20, 0] }, { duration: 0.5, easing: customEasing })
-  animate(titleRef.value, { opacity: [0, 1], y: [30, 0] }, { duration: 0.6, delay: 0.1, easing: customEasing })
-  animate(subtitleRef.value, { opacity: [0, 1], y: [20, 0] }, { duration: 0.5, delay: 0.2, easing: customEasing })
-  animate(contactRef.value, { opacity: [0, 1], y: [15, 0] }, { duration: 0.5, delay: 0.3, easing: customEasing })
-  animate(actionRef.value, { opacity: [0, 1], y: [15, 0] }, { duration: 0.5, delay: 0.4, easing: customEasing })
+onMounted(() => {
+  // Fade in the galaxies with a tiny delay for canvas init
+  setTimeout(() => {
+    showBg.value = true
+  }, 20)
+
+  // Content animations (only on medium/high spec)
+  if (!isLowSpec.value) {
+    const customEasing = [0.16, 1, 0.3, 1]
+
+    // Set initial hidden state
+    const elements = [
+      { ref: badgeRef, y: 20 },
+      { ref: titleRef, y: 30 },
+      { ref: subtitleRef, y: 20 },
+      { ref: contactRef, y: 15 },
+      { ref: actionRef, y: 15 }
+    ]
+    elements.forEach(({ ref, y }) => {
+      if (ref.value) {
+        ref.value.style.opacity = '0'
+        ref.value.style.transform = `translateY(${y}px)`
+      }
+    })
+
+    // Create staggered animations and store for cleanup
+    const anim1 = animate(badgeRef.value, { opacity: [0, 1], y: [20, 0] }, { duration: 0.5, easing: customEasing })
+    const anim2 = animate(titleRef.value, { opacity: [0, 1], y: [30, 0] }, { duration: 0.6, delay: 0.1, easing: customEasing })
+    const anim3 = animate(subtitleRef.value, { opacity: [0, 1], y: [20, 0] }, { duration: 0.5, delay: 0.2, easing: customEasing })
+    const anim4 = animate(contactRef.value, { opacity: [0, 1], y: [15, 0] }, { duration: 0.5, delay: 0.3, easing: customEasing })
+    const anim5 = animate(actionRef.value, { opacity: [0, 1], y: [15, 0] }, { duration: 0.5, delay: 0.4, easing: customEasing })
+
+    activeAnimations = [anim1, anim2, anim3, anim4, anim5]
+  } else {
+    // Low spec: all elements visible immediately
+    [badgeRef, titleRef, subtitleRef, contactRef, actionRef].forEach(ref => {
+      if (ref.value) {
+        ref.value.style.opacity = '1'
+        ref.value.style.transform = 'none'
+      }
+    })
+  }
+})
+
+onUnmounted(() => {
+  activeAnimations.forEach(anim => {
+    if (anim && typeof anim.stop === 'function') anim.stop()
+  })
 })
 </script>

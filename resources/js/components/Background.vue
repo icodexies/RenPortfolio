@@ -24,11 +24,56 @@ const props = defineProps({
 
 const canvasRef = ref(null)
 
+// ─── Quality tiers ──────────────────────────────────────────────────────
+// `animate: false` means: render one static frame and never start the loop.
+const TIERS = {
+  high:   { starCount: 180, pointsPerArm: 130, nebulaCount: 3, dprCap: 1.5, shootingStars: true,  animate: true },
+  medium: { starCount: 90,  pointsPerArm: 60,  nebulaCount: 1, dprCap: 1,   shootingStars: true,  animate: true },
+  low:    { starCount: 40,  pointsPerArm: 0,   nebulaCount: 1, dprCap: 1,   shootingStars: false, animate: false }
+}
+
+function detectInitialTier() {
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return 'low'
+
+  const cores = navigator.hardwareConcurrency || 4
+  const mem = navigator.deviceMemory // undefined on iOS Safari, that's fine
+  const isTouchDevice = window.matchMedia?.('(pointer: coarse)').matches
+  const saveData = navigator.connection?.saveData
+
+  if (saveData) return 'low'
+  if (isTouchDevice && (cores <= 4 || (mem !== undefined && mem <= 4))) return 'medium'
+  if (cores <= 2) return 'low'
+  return 'high'
+}
+
 onMounted(() => {
   const canvas = canvasRef.value
   const ctx = canvas.getContext('2d')
-  let animationFrameId
+  let animationFrameId = null
   let t = 0
+
+  let tierName = detectInitialTier()
+  let tier = TIERS[tierName]
+
+  // ─── Live FPS sampling to auto-downgrade if the device is struggling ───
+  let frameCount = 0
+  let benchmarkStart = performance.now()
+  let benchmarkDone = tierName === 'low' // no need to benchmark if already lowest
+
+  function sampleFrame(now) {
+    frameCount++
+    if (benchmarkDone) return
+    const elapsed = now - benchmarkStart
+    if (elapsed >= 1200) { // after ~1.2s, judge actual fps
+      const fps = (frameCount / elapsed) * 1000
+      benchmarkDone = true
+      if (fps < 30 && tierName !== 'low') {
+        applyTier('low')
+      } else if (fps < 45 && tierName === 'high') {
+        applyTier('medium')
+      }
+    }
+  }
 
   const mouse = { x: null, y: null }
   const handleMouseMove = (e) => { mouse.x = e.clientX; mouse.y = e.clientY }
@@ -46,38 +91,28 @@ onMounted(() => {
   const STAR_COLORS = ['#ffffff', '#c8b8ff', '#b8d4ff', '#ffd0a0']
   const SPIRAL_COLORS = ['#e0d0ff', '#c0a0ff', '#ffffff', '#a0c8ff', '#ffd8b0']
 
-  // Fewer stars overall, scaled down a bit further if there are multiple galaxies
-  // so busy pages (like one with 5 galaxies) don't pile up thousands of points.
   const buildStars = () => {
-    const count = 180
     stars = []
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < tier.starCount; i++) {
       const colorIdx = Math.floor(rand(0, STAR_COLORS.length))
       stars.push({
-        x: rand(0, W),
-        y: rand(0, H),
-        vx: rand(-0.25, 0.25),
-        vy: rand(-0.25, 0.25),
-        size: rand(0.4, 2.2),
-        alpha: rand(0.3, 1),
-        twinkleSpeed: rand(0.005, 0.02),
-        twinkleOffset: rand(0, Math.PI * 2),
-        layer: Math.floor(rand(0, 3)),
-        colorIdx
+        x: rand(0, W), y: rand(0, H),
+        vx: rand(-0.25, 0.25), vy: rand(-0.25, 0.25),
+        size: rand(0.4, 2.2), alpha: rand(0.3, 1),
+        twinkleSpeed: rand(0.005, 0.02), twinkleOffset: rand(0, Math.PI * 2),
+        layer: Math.floor(rand(0, 3)), colorIdx
       })
     }
   }
 
-  // Cut points-per-arm from 380 to 130 — visually still a dense spiral,
-  // a fraction of the draw cost.
   const buildGalaxyGroup = (gx, gy, sizeMult) => {
     const spiralStars = []
+    if (tier.pointsPerArm === 0) return spiralStars
     const armCount = 2
-    const pointsPerArm = 130
     for (let arm = 0; arm < armCount; arm++) {
       const baseAngle = (arm / armCount) * Math.PI * 2
-      for (let j = 0; j < pointsPerArm; j++) {
-        const t2 = j / pointsPerArm
+      for (let j = 0; j < tier.pointsPerArm; j++) {
+        const t2 = j / tier.pointsPerArm
         const angle = baseAngle + t2 * Math.PI * 4
         const r = t2 * Math.min(W, H) * 0.42 * sizeMult
         const spread = r * 0.22
@@ -88,12 +123,9 @@ onMounted(() => {
         const colorIdx = Math.floor(rand(0, SPIRAL_COLORS.length))
         spiralStars.push({
           bx: cx, by: cy,
-          vx: rand(-0.15, 0.15),
-          vy: rand(-0.15, 0.15),
-          size: rand(0.5, 2.5) * brightness,
-          alpha: rand(0.4, 0.95) * brightness,
-          twinkleSpeed: rand(0.008, 0.025),
-          twinkleOffset: rand(0, Math.PI * 2),
+          vx: rand(-0.15, 0.15), vy: rand(-0.15, 0.15),
+          size: rand(0.5, 2.5) * brightness, alpha: rand(0.4, 0.95) * brightness,
+          twinkleSpeed: rand(0.008, 0.025), twinkleOffset: rand(0, Math.PI * 2),
           colorIdx
         })
       }
@@ -103,18 +135,13 @@ onMounted(() => {
 
   const buildAllGalaxies = () => {
     galaxyGroups = props.galaxies.map(g => ({
-      cx: W * g.x,
-      cy: H * g.y,
-      hue: g.hue ?? 260,
-      size: g.size ?? 1,
+      cx: W * g.x, cy: H * g.y,
+      hue: g.hue ?? 260, size: g.size ?? 1,
       spiralStars: buildGalaxyGroup(W * g.x, H * g.y, g.size ?? 1)
     }))
     renderStaticGlowLayer()
   }
 
-  // This is the big win: the ambient + nebula glow never changes shape once
-  // built, so we paint it ONCE onto an offscreen canvas instead of recreating
-  // ~20+ gradients and full-canvas fills every single frame.
   const renderStaticGlowLayer = () => {
     if (!glowCanvas) {
       glowCanvas = document.createElement('canvas')
@@ -133,16 +160,15 @@ onMounted(() => {
       ambient.addColorStop(0, `hsla(${hue}, 80%, 60%, 0.13)`)
       ambient.addColorStop(0.5, `hsla(${hue}, 70%, 40%, 0.07)`)
       ambient.addColorStop(1, 'rgba(0,0,0,0)')
-      glowCtx.globalAlpha = 1
       glowCtx.fillStyle = ambient
       glowCtx.fillRect(0, 0, W, H)
 
-      const nebulae = [
+      const allNebulae = [
         { ox: -0.2, oy: -0.15, r: 200 * sizeMult, hue: hue,      alpha: 0.18 },
         { ox:  0.2, oy:  0.1,  r: 230 * sizeMult, hue: hue + 30, alpha: 0.12 },
         { ox:  0.05,oy: -0.3,  r: 160 * sizeMult, hue: hue - 30, alpha: 0.09 },
       ]
-      for (const n of nebulae) {
+      for (const n of allNebulae.slice(0, tier.nebulaCount)) {
         const ncx = gx + n.ox * W * 0.4
         const ncy = gy + n.oy * H * 0.4
         const gr = glowCtx.createRadialGradient(ncx, ncy, 0, ncx, ncy, n.r)
@@ -152,11 +178,24 @@ onMounted(() => {
         glowCtx.fillStyle = gr
         glowCtx.fillRect(0, 0, W, H)
       }
+
+      // core glow baked into the static layer too on low/medium (no mouse parallax there)
+      if (!tier.animate) {
+        const glowR = glowCtx.createRadialGradient(gx, gy, 0, gx, gy, 60 * sizeMult)
+        glowR.addColorStop(0, 'rgba(255,230,180,0.9)')
+        glowR.addColorStop(0.3, 'rgba(255,180,100,0.5)')
+        glowR.addColorStop(0.7, `hsla(${hue}, 80%, 60%, 0.2)`)
+        glowR.addColorStop(1, 'rgba(0,0,0,0)')
+        glowCtx.fillStyle = glowR
+        glowCtx.beginPath()
+        glowCtx.arc(gx, gy, 60 * sizeMult, 0, Math.PI * 2)
+        glowCtx.fill()
+      }
     }
   }
 
   const resizeCanvas = () => {
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5) // cap to avoid 3x cost on phones
+    const dpr = Math.min(window.devicePixelRatio || 1, tier.dprCap)
     const parent = canvas.parentElement
 
     W = parent.clientWidth
@@ -171,8 +210,21 @@ onMounted(() => {
     buildAllGalaxies()
   }
 
-  // Only the small bright core needs to move with the mouse each frame —
-  // everything static lives in the cached glow layer now.
+  function applyTier(newTierName) {
+    if (newTierName === tierName) return
+    tierName = newTierName
+    tier = TIERS[tierName]
+    resizeCanvas() // rebuild everything at the new tier's settings
+
+    if (!tier.animate && animationFrameId) {
+      cancelAnimationFrame(animationFrameId)
+      animationFrameId = null
+      render() // draw one final static frame
+    } else if (tier.animate && !animationFrameId) {
+      animationFrameId = requestAnimationFrame(render)
+    }
+  }
+
   const drawGalaxyCoreDynamic = (gx, gy, hue, sizeMult, dx, dy) => {
     const px = gx + dx * 3
     const py = gy + dy * 3
@@ -206,16 +258,17 @@ onMounted(() => {
     return {
       x: rand(0, W), y: rand(0, H * 0.5),
       vx: rand(4, 9), vy: rand(1.5, 4),
-      len: rand(60, 140),
-      life: 1,
-      decay: rand(0.012, 0.025)
+      len: rand(60, 140), life: 1, decay: rand(0.012, 0.025)
     }
   }
 
-  const render = () => {
-    // Blit the precomputed glow background instead of rebuilding it.
+  const render = (now = performance.now()) => {
+    sampleFrame(now)
+
     ctx.globalAlpha = 1
     ctx.drawImage(glowCanvas, 0, 0, W, H)
+
+    if (!tier.animate) return // static tier: one frame, nothing else to draw
 
     const mcx = mouse.x ?? W / 2
     const mcy = mouse.y ?? H / 2
@@ -226,16 +279,11 @@ onMounted(() => {
       drawGalaxyCoreDynamic(g.cx, g.cy, g.hue, g.size, dx, dy)
     }
 
-    // Background stars, batched per color: one beginPath + one fill per color
-    // instead of one beginPath + one fill PER STAR.
     const starBuckets = STAR_COLORS.map(() => [])
     for (const s of stars) {
-      s.x += s.vx
-      s.y += s.vy
-      if (s.x < 0) s.x = W
-      if (s.x > W) s.x = 0
-      if (s.y < 0) s.y = H
-      if (s.y > H) s.y = 0
+      s.x += s.vx; s.y += s.vy
+      if (s.x < 0) s.x = W; if (s.x > W) s.x = 0
+      if (s.y < 0) s.y = H; if (s.y > H) s.y = 0
       starBuckets[s.colorIdx].push(s)
     }
     STAR_COLORS.forEach((color, idx) => {
@@ -253,16 +301,12 @@ onMounted(() => {
       ctx.fill()
     })
 
-    // Spiral stars across all galaxies, same color-batching trick.
     const spiralBuckets = SPIRAL_COLORS.map(() => [])
     for (const g of galaxyGroups) {
       for (const s of g.spiralStars) {
-        s.bx += s.vx
-        s.by += s.vy
-        if (s.bx < 0) s.bx = W
-        if (s.bx > W) s.bx = 0
-        if (s.by < 0) s.by = H
-        if (s.by > H) s.by = 0
+        s.bx += s.vx; s.by += s.vy
+        if (s.bx < 0) s.bx = W; if (s.bx > W) s.bx = 0
+        if (s.by < 0) s.by = H; if (s.by > H) s.by = 0
         spiralBuckets[s.colorIdx].push(s)
       }
     }
@@ -280,32 +324,32 @@ onMounted(() => {
       ctx.fill()
     })
 
-    // Shooting stars (rare, cheap — left as-is)
-    shootTimer++
-    if (shootTimer >= nextShoot) {
-      activeShooters.push(spawnShooting())
-      shootTimer = 0
-      nextShoot = rand(60, 220)
-    }
-    for (let i = activeShooters.length - 1; i >= 0; i--) {
-      const sh = activeShooters[i]
-      sh.x += sh.vx
-      sh.y += sh.vy
-      sh.life -= sh.decay
-      if (sh.life <= 0) { activeShooters.splice(i, 1); continue }
-      const speed = Math.hypot(sh.vx, sh.vy)
-      const tailX = sh.x - sh.vx * (sh.len / speed)
-      const tailY = sh.y - sh.vy * (sh.len / speed)
-      const sg = ctx.createLinearGradient(tailX, tailY, sh.x, sh.y)
-      sg.addColorStop(0, 'rgba(255,255,255,0)')
-      sg.addColorStop(1, `rgba(255,255,255,${sh.life * 0.9})`)
-      ctx.globalAlpha = sh.life
-      ctx.beginPath()
-      ctx.moveTo(tailX, tailY)
-      ctx.lineTo(sh.x, sh.y)
-      ctx.strokeStyle = sg
-      ctx.lineWidth = 1.5
-      ctx.stroke()
+    if (tier.shootingStars) {
+      shootTimer++
+      if (shootTimer >= nextShoot) {
+        activeShooters.push(spawnShooting())
+        shootTimer = 0
+        nextShoot = rand(60, 220)
+      }
+      for (let i = activeShooters.length - 1; i >= 0; i--) {
+        const sh = activeShooters[i]
+        sh.x += sh.vx; sh.y += sh.vy
+        sh.life -= sh.decay
+        if (sh.life <= 0) { activeShooters.splice(i, 1); continue }
+        const speed = Math.hypot(sh.vx, sh.vy)
+        const tailX = sh.x - sh.vx * (sh.len / speed)
+        const tailY = sh.y - sh.vy * (sh.len / speed)
+        const sg = ctx.createLinearGradient(tailX, tailY, sh.x, sh.y)
+        sg.addColorStop(0, 'rgba(255,255,255,0)')
+        sg.addColorStop(1, `rgba(255,255,255,${sh.life * 0.9})`)
+        ctx.globalAlpha = sh.life
+        ctx.beginPath()
+        ctx.moveTo(tailX, tailY)
+        ctx.lineTo(sh.x, sh.y)
+        ctx.strokeStyle = sg
+        ctx.lineWidth = 1.5
+        ctx.stroke()
+      }
     }
 
     ctx.globalAlpha = 1
@@ -313,15 +357,30 @@ onMounted(() => {
     animationFrameId = requestAnimationFrame(render)
   }
 
+  const handleVisibility = () => {
+    if (document.hidden) {
+      if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null }
+    } else if (tier.animate && !animationFrameId) {
+      animationFrameId = requestAnimationFrame(render)
+    }
+  }
+  document.addEventListener('visibilitychange', handleVisibility)
+
   window.addEventListener('resize', resizeCanvas)
   resizeCanvas()
-  render()
+
+  if (tier.animate) {
+    animationFrameId = requestAnimationFrame(render)
+  } else {
+    render() // one static frame, no loop
+  }
 
   onUnmounted(() => {
     window.removeEventListener('resize', resizeCanvas)
     window.removeEventListener('mousemove', handleMouseMove)
     window.removeEventListener('mouseleave', handleMouseLeave)
-    cancelAnimationFrame(animationFrameId)
+    document.removeEventListener('visibilitychange', handleVisibility)
+    if (animationFrameId) cancelAnimationFrame(animationFrameId)
   })
 })
 </script>

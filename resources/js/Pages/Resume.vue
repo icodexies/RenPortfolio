@@ -1,8 +1,15 @@
 <template>
-  <AnimatedBackground :galaxies="[
-    { x: 0.3, y: 0.25, hue: 200, size: 0.6 },
-    { x: 0.7, y: 0.65, hue: 280, size: 0.5 }
-  ]">
+  <!-- Background layer (galaxies only) fades in independently -->
+  <div
+    ref="bgFadeRef"
+    class="fixed inset-0 z-0 opacity-0 transition-opacity duration-700"
+    :class="{ '!opacity-100': showBg }"
+  >
+    <AnimatedBackground :galaxies="adaptiveGalaxies" />
+  </div>
+
+  <!-- Page content (unaffected by background fade) -->
+  <div class="relative z-10">
     <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28">
       
       <div ref="headerRef" class="text-center mb-16 md:mb-20">
@@ -22,6 +29,7 @@
         <div ref="infoRef" class="lg:col-span-5 flex flex-col gap-4 h-full">
           <div class="space-y-4">
             
+            <!-- Email -->
             <div class="relative overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.03] backdrop-blur-md p-6 group transition-all duration-300 hover:border-orange-500/30">
               <div class="flex items-start gap-4">
                 <div class="p-3 rounded-xl bg-orange-500/10 text-orange-400 border border-orange-500/20">
@@ -36,6 +44,7 @@
               </div>
             </div>
 
+            <!-- Phone -->
             <div class="relative overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.03] backdrop-blur-md p-6 group transition-all duration-300 hover:border-emerald-500/30">
               <div class="flex items-start gap-4">
                 <div class="p-3 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -50,6 +59,7 @@
               </div>
             </div>
 
+            <!-- Social links -->
             <div class="grid grid-cols-2 gap-4">
               <a href="https://github.com/icodexies" target="_blank" rel="noopener" class="relative overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.03] backdrop-blur-md p-5 group transition-all duration-300 hover:border-purple-500/30">
                 <div class="flex flex-col gap-3">
@@ -102,16 +112,30 @@
               <span class="text-[10px] font-mono text-slate-600 font-bold">PDF-READER v1.2</span>
             </div>
 
+            <!-- Resume preview -->
             <div class="flex-1 bg-slate-950/60 rounded-xl overflow-hidden border border-white/[0.02] relative min-h-[400px]">
               
-              <iframe 
-                src="/pdf/updatedResume.pdf#toolbar=0" 
+              <!-- Low‑spec fallback (no iframe) -->
+              <div v-if="isLowSpec" class="w-full h-full flex flex-col items-center justify-center p-8 text-center space-y-4">
+                <Icon icon="ph:file-pdf-duotone" class="text-5xl text-rose-400 opacity-70" />
+                <p class="text-sm text-slate-300 font-bold">Resume Preview</p>
+                <p class="text-xs text-slate-500 max-w-xs">
+                  Direct preview disabled to keep your device fast. Download the full PDF below.
+                </p>
+              </div>
+
+              <!-- Full iframe on capable devices -->
+              <iframe
+                v-else
+                src="/pdf/updatedResume.pdf#toolbar=0"
                 class="w-full h-full border-none"
                 title="Resume Preview"
               ></iframe>
 
               <div class="absolute inset-x-0 bottom-0 h-24 bg-linear-to-t from-[#090d1a] via-[#090d1a]/80 to-transparent pointer-events-none flex items-end justify-center pb-4">
-                <div class="text-[11px] font-mono text-slate-500 tracking-wide">Preview ends here • Click below to get the full version</div>
+                <div class="text-[11px] font-mono text-slate-500 tracking-wide">
+                  {{ isLowSpec ? 'Tap the button below to get the full version' : 'Preview ends here • Click below to get the full version' }}
+                </div>
               </div>
             </div>
 
@@ -132,58 +156,98 @@
       </div>
 
     </section>
-  </AnimatedBackground>
+  </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { animate } from 'motion'
 import { Icon } from '@iconify/vue'
 import AnimatedBackground from '@/components/Background.vue'
 
-// Animation reference pointers
 const headerRef = ref(null)
 const infoRef = ref(null)
 const resumeRef = ref(null)
-
-// Garbage collection hook array for flawless HMR refreshes
+const showBg = ref(false)          // controls galaxy fade‑in
 let activeAnimations = []
 
+// ---------- Performance detection (immediate) ----------
+const detectTier = () => {
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const cores = navigator.hardwareConcurrency || 4
+  const memory = navigator.deviceMemory || 4
+
+  if (reduceMotion) return 'low'
+  if (cores <= 2 || memory <= 2) return 'low'
+  if (cores <= 4 || memory <= 4) return 'medium'
+  return 'high'
+}
+
+const performanceTier = ref(detectTier())   // correct from the start, no flash
+
+const isLowSpec = computed(() => performanceTier.value === 'low')
+const isMediumSpec = computed(() => performanceTier.value === 'medium')
+
+// Adaptive galaxies – right size from the first frame
+const adaptiveGalaxies = computed(() => {
+  const original = [
+    { x: 0.3, y: 0.25, hue: 200, size: 0.6 },
+    { x: 0.7, y: 0.65, hue: 280, size: 0.5 }
+  ]
+
+  if (isLowSpec.value) {
+    return [{ x: 0.5, y: 0.5, hue: 240, size: 0.2 }]
+  }
+  if (isMediumSpec.value) {
+    return [
+      { x: 0.3, y: 0.25, hue: 200, size: 0.4 },
+      { x: 0.7, y: 0.65, hue: 280, size: 0.35 }
+    ]
+  }
+  return original
+})
+
 onMounted(() => {
-  const easing = [0.16, 1, 0.3, 1]
+  // Fade in galaxies with a tiny delay for canvas init
+  setTimeout(() => {
+    showBg.value = true
+  }, 20)
 
-  // Setup predictable start styles programmatically via runtime JS 
-  if (headerRef.value) {
-    headerRef.value.style.opacity = '0'
-    headerRef.value.style.transform = 'translateY(20px)'
-    
-    const anim = animate(headerRef.value, { opacity: [0, 1], y: [20, 0] }, { duration: 0.55, easing })
-    activeAnimations.push(anim)
-  }
+  // Content animations (medium/high) or instant (low)
+  if (!isLowSpec.value) {
+    const easing = [0.16, 1, 0.3, 1]
 
-  if (infoRef.value) {
-    infoRef.value.style.opacity = '0'
-    infoRef.value.style.transform = 'translateY(24px)'
-    
-    const anim = animate(infoRef.value, { opacity: [0, 1], y: [24, 0] }, { duration: 0.5, delay: 0.1, easing })
-    activeAnimations.push(anim)
-  }
+    if (headerRef.value) {
+      headerRef.value.style.opacity = '0'
+      headerRef.value.style.transform = 'translateY(20px)'
+      const anim = animate(headerRef.value, { opacity: [0, 1], y: [20, 0] }, { duration: 0.55, easing })
+      activeAnimations.push(anim)
+    }
 
-  if (resumeRef.value) {
-    resumeRef.value.style.opacity = '0'
-    resumeRef.value.style.transform = 'translateY(24px)'
-    
-    const anim = animate(resumeRef.value, { opacity: [0, 1], y: [24, 0] }, { duration: 0.5, delay: 0.2, easing })
-    activeAnimations.push(anim)
+    if (infoRef.value) {
+      infoRef.value.style.opacity = '0'
+      infoRef.value.style.transform = 'translateY(24px)'
+      const anim = animate(infoRef.value, { opacity: [0, 1], y: [24, 0] }, { duration: 0.5, delay: 0.1, easing })
+      activeAnimations.push(anim)
+    }
+
+    if (resumeRef.value) {
+      resumeRef.value.style.opacity = '0'
+      resumeRef.value.style.transform = 'translateY(24px)'
+      const anim = animate(resumeRef.value, { opacity: [0, 1], y: [24, 0] }, { duration: 0.5, delay: 0.2, easing })
+      activeAnimations.push(anim)
+    }
+  } else {
+    // Low spec – everything appears instantly
+    if (headerRef.value) headerRef.value.style.opacity = '1'
+    if (infoRef.value) infoRef.value.style.opacity = '1'
+    if (resumeRef.value) resumeRef.value.style.opacity = '1'
   }
 })
 
-// Automatically purge active tween instances when Vite pushes file updates
 onUnmounted(() => {
   activeAnimations.forEach(control => {
-    if (control && typeof control.stop === 'function') {
-      control.stop()
-    }
+    if (control && typeof control.stop === 'function') control.stop()
   })
   activeAnimations = []
 })

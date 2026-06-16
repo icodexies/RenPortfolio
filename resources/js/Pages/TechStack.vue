@@ -1,13 +1,16 @@
 <template>
-  <AnimatedBackground :galaxies="[
-    { x: 0.15, y: 0.10, hue: 160, size: 0.6 },
-    { x: 0.90, y: 0.25, hue: 200, size: 0.4 },
-    { x: 0.15, y: 0.45, hue: 200, size: 0.5 },
-    { x: 0.75, y: 0.55, hue: 280, size: 0.5 },
-    { x: 0.50, y: 0.85, hue: 100, size: 0.5 },
-  ]">
-    <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28">
+  <!-- Background layer (galaxies only) fades in independently -->
+  <div
+    ref="bgFadeRef"
+    class="fixed inset-0 z-0 opacity-0 transition-opacity duration-700"
+    :class="{ '!opacity-100': showBg }"
+  >
+    <AnimatedBackground :galaxies="adaptiveGalaxies" />
+  </div>
 
+  <!-- Page content (unaffected by background fade) -->
+  <div class="relative z-10">
+    <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28">
       <div ref="headerRef" class="text-center mb-16 md:mb-20">
         <div class="inline-flex items-center gap-2 text-[11px] font-bold tracking-[.16em] uppercase text-teal-400/80 mb-4">
           <span class="w-1.5 h-1.5 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500 inline-block"></span>
@@ -33,8 +36,8 @@
       </div>
 
       <div class="flex flex-col gap-14">
-        <div 
-          v-for="(group, groupIdx) in filteredSkills" 
+        <div
+          v-for="(group, groupIdx) in filteredSkills"
           :key="group.category"
           class="flex flex-col gap-5"
         >
@@ -53,14 +56,14 @@
               class="h-full group/skill"
               :hue="group.hue"
               :index="skillIdx"
-              :delay="groupIdx * 0.06 + skillIdx * 0.03"
+              :delay="isLowSpec ? 0 : groupIdx * 0.06 + skillIdx * 0.03"
             >
               <template #header-content>
                 <div class="absolute inset-0 flex items-center justify-center h-28 w-full bg-white/[0.01]">
-                  <Icon 
-                    :icon="skill.icon" 
-                    class="text-[42px] opacity-75 transition-all duration-300 group-hover/skill:scale-110 group-hover/skill:opacity-100" 
-                    :style="{ color: `hsl(${group.hue}, 75%, 65%)` }" 
+                  <Icon
+                    :icon="skill.icon"
+                    class="text-[42px] opacity-75 transition-all duration-300 group-hover/skill:scale-110 group-hover/skill:opacity-100"
+                    :style="{ color: `hsl(${group.hue}, 75%, 65%)` }"
                   />
                 </div>
                 <div class="absolute bottom-2 left-3 text-[9px] font-mono uppercase tracking-widest text-slate-500/70 z-20">
@@ -73,18 +76,24 @@
                   <span class="text-[9px] font-bold uppercase tracking-wider text-slate-500">{{ group.category }}</span>
                   <span class="font-mono text-[9px] text-slate-600 font-bold">{{ skill.level }}</span>
                 </div>
-                
+
                 <h3 class="text-[15px] font-bold text-slate-100 group-hover/skill:text-white transition-colors duration-200 mb-1">
                   {{ skill.title }}
                 </h3>
-                
+
                 <p class="text-[11px] text-slate-400/70 leading-relaxed mb-3">
                   {{ skill.desc }}
                 </p>
-                
+
                 <div class="mt-auto">
                   <div class="w-full bg-slate-950/60 h-1 rounded-full overflow-hidden border border-white/[0.02]">
-                    <div class="h-full transition-all duration-500" :style="{ width: `${skill.proficiency}%`, backgroundColor: `hsl(${group.hue}, 70%, 55%)` }"></div>
+                    <div
+                      class="h-full transition-all duration-500"
+                      :style="{
+                        width: `${skill.proficiency}%`,
+                        backgroundColor: `hsl(${group.hue}, 70%, 55%)`
+                      }"
+                    ></div>
                   </div>
                 </div>
               </template>
@@ -92,9 +101,8 @@
           </div>
         </div>
       </div>
-
     </section>
-  </AnimatedBackground>
+  </div>
 </template>
 
 <script setup>
@@ -107,9 +115,44 @@ import ProjectCard from '@/components/Card.vue'
 const headerRef = ref(null)
 const filtersRef = ref(null)
 const activeCategory = ref('All')
-
+const showBg = ref(false)          // controls galaxy fade-in
 let activeAnimations = []
 
+// ---------- Performance detection (immediate) ----------
+const detectTier = () => {
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const cores = navigator.hardwareConcurrency || 4
+  const memory = navigator.deviceMemory || 4
+
+  if (reduceMotion) return 'low'
+  if (cores <= 2 || memory <= 2) return 'low'
+  if (cores <= 4 || memory <= 4) return 'medium'
+  return 'high'
+}
+
+const performanceTier = ref(detectTier())
+const isLowSpec = computed(() => performanceTier.value === 'low')
+const isMediumSpec = computed(() => performanceTier.value === 'medium')
+
+// Adaptive galaxies – correct from the first frame
+const adaptiveGalaxies = computed(() => {
+  const full = [
+    { x: 0.15, y: 0.10, hue: 160, size: 0.6 },
+    { x: 0.90, y: 0.25, hue: 200, size: 0.4 },
+    { x: 0.15, y: 0.45, hue: 200, size: 0.5 },
+    { x: 0.75, y: 0.55, hue: 280, size: 0.5 },
+    { x: 0.50, y: 0.85, hue: 100, size: 0.5 },
+  ]
+  if (isLowSpec.value) return [{ x: 0.5, y: 0.5, hue: 200, size: 0.2 }]
+  if (isMediumSpec.value) return [
+    { x: 0.15, y: 0.10, hue: 160, size: 0.35 },
+    { x: 0.90, y: 0.25, hue: 200, size: 0.25 },
+    { x: 0.50, y: 0.85, hue: 100, size: 0.35 },
+  ]
+  return full
+})
+
+// Skill groups (unchanged)
 const skillGroups = [
   {
     category: 'Frontend',
@@ -144,40 +187,41 @@ const skillGroups = [
 ]
 
 const availableCategories = computed(() => ['All', ...skillGroups.map(g => g.category)])
-
 const filteredSkills = computed(() => {
   if (activeCategory.value === 'All') return skillGroups
   return skillGroups.filter(group => group.category === activeCategory.value)
 })
 
 onMounted(() => {
-  const easing = [0.16, 1, 0.3, 1]
-  
-  if (headerRef.value) {
-    headerRef.value.style.opacity = '0'
-    headerRef.value.style.transform = 'translateY(20px)'
-  }
-  if (filtersRef.value) {
-    filtersRef.value.style.opacity = '0'
-    filtersRef.value.style.transform = 'translateY(12px)'
-  }
+  // Fade in the galaxies with a tiny delay to ensure canvas is ready
+  setTimeout(() => {
+    showBg.value = true
+  }, 20)
 
-  if (headerRef.value) {
-    const anim = animate(headerRef.value, { opacity: [0, 1], y: [20, 0] }, { duration: 0.55, easing })
-    activeAnimations.push(anim)
-  }
-  
-  if (filtersRef.value) {
-    const anim = animate(filtersRef.value, { opacity: [0, 1], y: [12, 0] }, { duration: 0.45, delay: 0.12, easing })
-    activeAnimations.push(anim)
+  // Content animations (medium/high) or instant (low)
+  if (!isLowSpec.value) {
+    const easing = [0.16, 1, 0.3, 1]
+    if (headerRef.value) {
+      headerRef.value.style.opacity = '0'
+      headerRef.value.style.transform = 'translateY(20px)'
+      const anim = animate(headerRef.value, { opacity: [0, 1], y: [20, 0] }, { duration: 0.55, easing })
+      activeAnimations.push(anim)
+    }
+    if (filtersRef.value) {
+      filtersRef.value.style.opacity = '0'
+      filtersRef.value.style.transform = 'translateY(12px)'
+      const anim = animate(filtersRef.value, { opacity: [0, 1], y: [12, 0] }, { duration: 0.45, delay: 0.12, easing })
+      activeAnimations.push(anim)
+    }
+  } else {
+    if (headerRef.value) headerRef.value.style.opacity = '1'
+    if (filtersRef.value) headerRef.value.style.opacity = '1'
   }
 })
 
 onUnmounted(() => {
   activeAnimations.forEach(controls => {
-    if (controls && typeof controls.stop === 'function') {
-      controls.stop()
-    }
+    if (controls && typeof controls.stop === 'function') controls.stop()
   })
   activeAnimations = []
 })
