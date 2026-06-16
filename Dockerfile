@@ -4,8 +4,8 @@ FROM node:20-alpine AS frontend
 WORKDIR /app
 
 # Need composer + php to install ziggy vendor files
-RUN apk add --no-cache php83 php83-phar php83-mbstring php83-openssl php83-tokenizer \
-    && ln -sf /usr/bin/php83 /usr/bin/php
+RUN apk add --no-cache php84 php84-phar php84-mbstring php84-openssl php84-tokenizer \
+    && ln -sf /usr/bin/php84 /usr/bin/phps
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
@@ -23,7 +23,7 @@ COPY . .
 RUN npm run build
 
 # ─── Stage 2: PHP + Nginx (production) ─────────────────────────────────────
-FROM php:8.2-fpm-alpine AS production
+FROM php:8.4-fpm-alpine AS production
 
 # System deps
 RUN apk add --no-cache \
