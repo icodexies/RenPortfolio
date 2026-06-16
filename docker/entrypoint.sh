@@ -3,6 +3,10 @@ set -e
 
 cd /var/www/html
 
+echo "→ Ensuring storage directories exist..."
+mkdir -p storage/framework/{sessions,views,cache,testing} storage/logs bootstrap/cache
+chown -R www-data:www-data storage bootstrap/cache
+
 echo "→ Caching config..."
 php artisan config:cache
 php artisan route:cache
