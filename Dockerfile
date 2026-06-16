@@ -3,33 +3,26 @@ FROM node:20 AS frontend
 
 WORKDIR /app
 
-# ------------------------------------------------------------
-# 🔧 Receive VITE_ variables from Render's build arguments
-# ------------------------------------------------------------
+# Receive VITE_ variables from Render (must match the dashboard variable names)
 ARG VITE_APP_NAME
-# 👇 Add one ARG for every other VITE_ variable your code uses, e.g.:
-# ARG VITE_APP_URL
-# ARG VITE_PUSHER_APP_KEY
+# Add more ARGs here if you use other VITE_* variables
 
-# Convert ARGs to ENVs so Vite can see them during build
+# Make them available during the build
 ENV VITE_APP_NAME=$VITE_APP_NAME
-# ENV VITE_APP_URL=$VITE_APP_URL
-# ENV VITE_PUSHER_APP_KEY=$VITE_PUSHER_APP_KEY
 
-# ------------------------------------------------------------
 COPY package*.json ./
-RUN npm ci               # safer for CI (respects lock file)
+RUN npm ci
 
 COPY . .
 
-# Debug: show all VITE_ variables right before build
+# Debug: print the VITE_ variables so we can see them in the Render log
 RUN printenv | grep VITE_
 
-# Build with verbose output and increased memory
+# Build with verbose logging and increased memory
 RUN NODE_OPTIONS="--max-old-space-size=4096" VITE_LOG_LEVEL=info npm run build -- --debug
 
 
-# Stage 2 - Backend (Laravel + PHP + Composer)
+# Stage 2 - Backend
 FROM php:8.2-fpm AS backend
 
 # Install system dependencies
