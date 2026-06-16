@@ -44,7 +44,7 @@
                 <div>
                   <h4 class="text-[11px] font-mono tracking-widest uppercase text-slate-500 mb-1">Phone</h4>
                   <a href="tel:+15550000000" class="text-base font-bold text-slate-200 hover:text-emerald-400 transition-colors">
-                    +1 (555) 000-0000
+                    63+ 9702129011
                   </a>
                 </div>
               </div>
