@@ -54,7 +54,6 @@ const isActive = (routeName) => {
             <a :href="route('home')"      :class="['nav-link', { 'nav-link--active': isActive('home') }]">Home</a>
             <a :href="route('project')"   :class="['nav-link', { 'nav-link--active': isActive('project') }]">Projects</a>
             <a :href="route('techStack')" :class="['nav-link', { 'nav-link--active': isActive('techStack') }]">Tech Stack</a>
-            <a :href="route('resume')"    :class="['nav-link', { 'nav-link--active': isActive('resume') }]">Resume</a>
           </div>
 
           <div class="hidden md:flex items-center gap-4">
