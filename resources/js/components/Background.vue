@@ -40,10 +40,19 @@ onMounted(() => {
 
   let W, H, stars
   let galaxyGroups = []
+  let glowCanvas = null
+  let glowCtx = null
 
+  const STAR_COLORS = ['#ffffff', '#c8b8ff', '#b8d4ff', '#ffd0a0']
+  const SPIRAL_COLORS = ['#e0d0ff', '#c0a0ff', '#ffffff', '#a0c8ff', '#ffd8b0']
+
+  // Fewer stars overall, scaled down a bit further if there are multiple galaxies
+  // so busy pages (like one with 5 galaxies) don't pile up thousands of points.
   const buildStars = () => {
+    const count = 180
     stars = []
-    for (let i = 0; i < 400; i++) {
+    for (let i = 0; i < count; i++) {
+      const colorIdx = Math.floor(rand(0, STAR_COLORS.length))
       stars.push({
         x: rand(0, W),
         y: rand(0, H),
@@ -54,18 +63,21 @@ onMounted(() => {
         twinkleSpeed: rand(0.005, 0.02),
         twinkleOffset: rand(0, Math.PI * 2),
         layer: Math.floor(rand(0, 3)),
-        color: ['#ffffff', '#c8b8ff', '#b8d4ff', '#ffd0a0'][Math.floor(rand(0, 4))]
+        colorIdx
       })
     }
   }
 
+  // Cut points-per-arm from 380 to 130 — visually still a dense spiral,
+  // a fraction of the draw cost.
   const buildGalaxyGroup = (gx, gy, sizeMult) => {
     const spiralStars = []
     const armCount = 2
+    const pointsPerArm = 130
     for (let arm = 0; arm < armCount; arm++) {
       const baseAngle = (arm / armCount) * Math.PI * 2
-      for (let j = 0; j < 380; j++) {
-        const t2 = j / 380
+      for (let j = 0; j < pointsPerArm; j++) {
+        const t2 = j / pointsPerArm
         const angle = baseAngle + t2 * Math.PI * 4
         const r = t2 * Math.min(W, H) * 0.42 * sizeMult
         const spread = r * 0.22
@@ -73,6 +85,7 @@ onMounted(() => {
         const cy = gy + Math.sin(angle) * r + rand(-spread, spread)
         if (cx < 0 || cx > W || cy < 0 || cy > H) continue
         const brightness = 1 - t2 * 0.5
+        const colorIdx = Math.floor(rand(0, SPIRAL_COLORS.length))
         spiralStars.push({
           bx: cx, by: cy,
           vx: rand(-0.15, 0.15),
@@ -81,7 +94,7 @@ onMounted(() => {
           alpha: rand(0.4, 0.95) * brightness,
           twinkleSpeed: rand(0.008, 0.025),
           twinkleOffset: rand(0, Math.PI * 2),
-          color: ['#e0d0ff', '#c0a0ff', '#ffffff', '#a0c8ff', '#ffd8b0'][Math.floor(rand(0, 5))]
+          colorIdx
         })
       }
     }
@@ -96,6 +109,93 @@ onMounted(() => {
       size: g.size ?? 1,
       spiralStars: buildGalaxyGroup(W * g.x, H * g.y, g.size ?? 1)
     }))
+    renderStaticGlowLayer()
+  }
+
+  // This is the big win: the ambient + nebula glow never changes shape once
+  // built, so we paint it ONCE onto an offscreen canvas instead of recreating
+  // ~20+ gradients and full-canvas fills every single frame.
+  const renderStaticGlowLayer = () => {
+    if (!glowCanvas) {
+      glowCanvas = document.createElement('canvas')
+      glowCtx = glowCanvas.getContext('2d')
+    }
+    glowCanvas.width = W
+    glowCanvas.height = H
+
+    glowCtx.fillStyle = '#030712'
+    glowCtx.fillRect(0, 0, W, H)
+
+    for (const g of galaxyGroups) {
+      const { cx: gx, cy: gy, hue, size: sizeMult } = g
+
+      const ambient = glowCtx.createRadialGradient(gx, gy, 0, gx, gy, Math.min(W, H) * 0.38 * sizeMult)
+      ambient.addColorStop(0, `hsla(${hue}, 80%, 60%, 0.13)`)
+      ambient.addColorStop(0.5, `hsla(${hue}, 70%, 40%, 0.07)`)
+      ambient.addColorStop(1, 'rgba(0,0,0,0)')
+      glowCtx.globalAlpha = 1
+      glowCtx.fillStyle = ambient
+      glowCtx.fillRect(0, 0, W, H)
+
+      const nebulae = [
+        { ox: -0.2, oy: -0.15, r: 200 * sizeMult, hue: hue,      alpha: 0.18 },
+        { ox:  0.2, oy:  0.1,  r: 230 * sizeMult, hue: hue + 30, alpha: 0.12 },
+        { ox:  0.05,oy: -0.3,  r: 160 * sizeMult, hue: hue - 30, alpha: 0.09 },
+      ]
+      for (const n of nebulae) {
+        const ncx = gx + n.ox * W * 0.4
+        const ncy = gy + n.oy * H * 0.4
+        const gr = glowCtx.createRadialGradient(ncx, ncy, 0, ncx, ncy, n.r)
+        gr.addColorStop(0, `hsla(${n.hue}, 80%, 55%, ${n.alpha})`)
+        gr.addColorStop(0.5, `hsla(${n.hue + 20}, 70%, 40%, ${n.alpha * 0.4})`)
+        gr.addColorStop(1, `hsla(${n.hue + 40}, 60%, 30%, 0)`)
+        glowCtx.fillStyle = gr
+        glowCtx.fillRect(0, 0, W, H)
+      }
+    }
+  }
+
+  const resizeCanvas = () => {
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5) // cap to avoid 3x cost on phones
+    const parent = canvas.parentElement
+
+    W = parent.clientWidth
+    H = parent.clientHeight
+
+    canvas.width = W * dpr
+    canvas.height = H * dpr
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.scale(dpr, dpr)
+
+    buildStars()
+    buildAllGalaxies()
+  }
+
+  // Only the small bright core needs to move with the mouse each frame —
+  // everything static lives in the cached glow layer now.
+  const drawGalaxyCoreDynamic = (gx, gy, hue, sizeMult, dx, dy) => {
+    const px = gx + dx * 3
+    const py = gy + dy * 3
+    const coreRadius = 60 * sizeMult
+
+    const glowR = ctx.createRadialGradient(px, py, 0, px, py, coreRadius)
+    glowR.addColorStop(0, 'rgba(255,230,180,0.9)')
+    glowR.addColorStop(0.3, 'rgba(255,180,100,0.5)')
+    glowR.addColorStop(0.7, `hsla(${hue}, 80%, 60%, 0.2)`)
+    glowR.addColorStop(1, 'rgba(0,0,0,0)')
+    ctx.globalAlpha = 1
+    ctx.beginPath()
+    ctx.arc(px, py, coreRadius, 0, Math.PI * 2)
+    ctx.fillStyle = glowR
+    ctx.fill()
+
+    const coreInner = ctx.createRadialGradient(px, py, 0, px, py, 10 * sizeMult)
+    coreInner.addColorStop(0, 'rgba(255,255,220,1)')
+    coreInner.addColorStop(1, 'rgba(255,220,150,0)')
+    ctx.beginPath()
+    ctx.arc(px, py, 10 * sizeMult, 0, Math.PI * 2)
+    ctx.fillStyle = coreInner
+    ctx.fill()
   }
 
   const activeShooters = []
@@ -112,92 +212,23 @@ onMounted(() => {
     }
   }
 
-  const resizeCanvas = () => {
-  const dpr = window.devicePixelRatio || 1
-  const parent = canvas.parentElement // Get the actual container element
-
-  // Use the parent container's actual pixel dimensions instead of window sizes
-  W = parent.clientWidth
-  H = parent.clientHeight
-  
-  canvas.width = W * dpr
-  canvas.height = H * dpr
-  ctx.scale(dpr, dpr)
-  
-  buildStars()
-  buildAllGalaxies()
-}
-
-  const drawGalaxyCore = (gx, gy, hue, sizeMult, dx, dy) => {
-    const px = gx + dx * 3
-    const py = gy + dy * 3
-    const coreRadius = 60 * sizeMult
-
-    // ambient hue glow
-    const ambient = ctx.createRadialGradient(px, py, 0, px, py, Math.min(W, H) * 0.38 * sizeMult)
-    ambient.addColorStop(0, `hsla(${hue}, 80%, 60%, 0.13)`)
-    ambient.addColorStop(0.5, `hsla(${hue}, 70%, 40%, 0.07)`)
-    ambient.addColorStop(1, 'rgba(0,0,0,0)')
-    ctx.globalAlpha = 1
-    ctx.fillStyle = ambient
-    ctx.fillRect(0, 0, W, H)
-
-    // nebula clouds around this galaxy
-    const nebulae = [
-      { ox: -0.2, oy: -0.15, r: 200 * sizeMult, hue: hue,       alpha: 0.18 },
-      { ox:  0.2, oy:  0.1,  r: 230 * sizeMult, hue: hue + 30,  alpha: 0.12 },
-      { ox:  0.05,oy: -0.3,  r: 160 * sizeMult, hue: hue - 30,  alpha: 0.09 },
-    ]
-    for (const n of nebulae) {
-      const ncx = gx + n.ox * W * 0.4 + dx * 18
-      const ncy = gy + n.oy * H * 0.4 + dy * 18
-      const g = ctx.createRadialGradient(ncx, ncy, 0, ncx, ncy, n.r)
-      g.addColorStop(0, `hsla(${n.hue}, 80%, 55%, ${n.alpha})`)
-      g.addColorStop(0.5, `hsla(${n.hue + 20}, 70%, 40%, ${n.alpha * 0.4})`)
-      g.addColorStop(1, `hsla(${n.hue + 40}, 60%, 30%, 0)`)
-      ctx.globalAlpha = 1
-      ctx.fillStyle = g
-      ctx.fillRect(0, 0, W, H)
-    }
-
-    // bright core glow
-    const glowR = ctx.createRadialGradient(px, py, 0, px, py, coreRadius)
-    glowR.addColorStop(0, 'rgba(255,230,180,0.9)')
-    glowR.addColorStop(0.3, 'rgba(255,180,100,0.5)')
-    glowR.addColorStop(0.7, `hsla(${hue}, 80%, 60%, 0.2)`)
-    glowR.addColorStop(1, 'rgba(0,0,0,0)')
-    ctx.globalAlpha = 1
-    ctx.beginPath()
-    ctx.arc(px, py, coreRadius, 0, Math.PI * 2)
-    ctx.fillStyle = glowR
-    ctx.fill()
-
-    // inner bright point
-    const coreInner = ctx.createRadialGradient(px, py, 0, px, py, 10 * sizeMult)
-    coreInner.addColorStop(0, 'rgba(255,255,220,1)')
-    coreInner.addColorStop(1, 'rgba(255,220,150,0)')
-    ctx.beginPath()
-    ctx.arc(px, py, 10 * sizeMult, 0, Math.PI * 2)
-    ctx.fillStyle = coreInner
-    ctx.fill()
-  }
-
   const render = () => {
-    ctx.clearRect(0, 0, W, H)
-    ctx.fillStyle = '#030712'
-    ctx.fillRect(0, 0, W, H)
+    // Blit the precomputed glow background instead of rebuilding it.
+    ctx.globalAlpha = 1
+    ctx.drawImage(glowCanvas, 0, 0, W, H)
 
     const mcx = mouse.x ?? W / 2
     const mcy = mouse.y ?? H / 2
     const dx = (mcx - W / 2) / W
     const dy = (mcy - H / 2) / H
 
-    // draw each galaxy: ambient + nebulae + core
     for (const g of galaxyGroups) {
-      drawGalaxyCore(g.cx, g.cy, g.hue, g.size, dx, dy)
+      drawGalaxyCoreDynamic(g.cx, g.cy, g.hue, g.size, dx, dy)
     }
 
-    // background field stars (shared across all galaxies)
+    // Background stars, batched per color: one beginPath + one fill per color
+    // instead of one beginPath + one fill PER STAR.
+    const starBuckets = STAR_COLORS.map(() => [])
     for (const s of stars) {
       s.x += s.vx
       s.y += s.vy
@@ -205,16 +236,25 @@ onMounted(() => {
       if (s.x > W) s.x = 0
       if (s.y < 0) s.y = H
       if (s.y > H) s.y = 0
-      const parallax = [0, 4, 8][s.layer]
-      const flicker = 0.5 + 0.5 * Math.sin(t * s.twinkleSpeed + s.twinkleOffset)
-      ctx.globalAlpha = s.alpha * (0.6 + 0.4 * flicker)
-      ctx.beginPath()
-      ctx.arc(s.x + dx * parallax, s.y + dy * parallax, s.size, 0, Math.PI * 2)
-      ctx.fillStyle = s.color
-      ctx.fill()
+      starBuckets[s.colorIdx].push(s)
     }
+    STAR_COLORS.forEach((color, idx) => {
+      const bucket = starBuckets[idx]
+      if (!bucket.length) return
+      ctx.fillStyle = color
+      ctx.beginPath()
+      for (const s of bucket) {
+        const parallax = [0, 4, 8][s.layer]
+        const flicker = 0.5 + 0.5 * Math.sin(t * s.twinkleSpeed + s.twinkleOffset)
+        ctx.globalAlpha = s.alpha * (0.6 + 0.4 * flicker)
+        ctx.moveTo(s.x + dx * parallax + s.size, s.y + dy * parallax)
+        ctx.arc(s.x + dx * parallax, s.y + dy * parallax, s.size, 0, Math.PI * 2)
+      }
+      ctx.fill()
+    })
 
-    // spiral stars per galaxy
+    // Spiral stars across all galaxies, same color-batching trick.
+    const spiralBuckets = SPIRAL_COLORS.map(() => [])
     for (const g of galaxyGroups) {
       for (const s of g.spiralStars) {
         s.bx += s.vx
@@ -223,16 +263,24 @@ onMounted(() => {
         if (s.bx > W) s.bx = 0
         if (s.by < 0) s.by = H
         if (s.by > H) s.by = 0
-        const flicker = 0.5 + 0.5 * Math.sin(t * s.twinkleSpeed + s.twinkleOffset)
-        ctx.globalAlpha = s.alpha * (0.5 + 0.5 * flicker)
-        ctx.beginPath()
-        ctx.arc(s.bx + dx * 6, s.by + dy * 6, s.size, 0, Math.PI * 2)
-        ctx.fillStyle = s.color
-        ctx.fill()
+        spiralBuckets[s.colorIdx].push(s)
       }
     }
+    SPIRAL_COLORS.forEach((color, idx) => {
+      const bucket = spiralBuckets[idx]
+      if (!bucket.length) return
+      ctx.fillStyle = color
+      ctx.beginPath()
+      for (const s of bucket) {
+        const flicker = 0.5 + 0.5 * Math.sin(t * s.twinkleSpeed + s.twinkleOffset)
+        ctx.globalAlpha = s.alpha * (0.5 + 0.5 * flicker)
+        ctx.moveTo(s.bx + dx * 6 + s.size, s.by + dy * 6)
+        ctx.arc(s.bx + dx * 6, s.by + dy * 6, s.size, 0, Math.PI * 2)
+      }
+      ctx.fill()
+    })
 
-    // shooting stars
+    // Shooting stars (rare, cheap — left as-is)
     shootTimer++
     if (shootTimer >= nextShoot) {
       activeShooters.push(spawnShooting())
