@@ -1,37 +1,55 @@
-# Stage 1 - Build Frontend (Vite)
-FROM node:20 AS frontend
+# ─── Stage 1: Build frontend ───────────────────────────────────────────────
+FROM node:20-alpine AS frontend
 
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --prefer-offline
 
 COPY . .
 
-# 🔥 Copy production Vite variables into .env – Vite reads them automatically
-COPY .env.production .env
+RUN npm run build
 
-# Build (no debug, safe memory limit)
-RUN NODE_OPTIONS="--max-old-space-size=2048" npm run build
+# ─── Stage 2: PHP + Nginx (production) ─────────────────────────────────────
+FROM php:8.2-fpm-alpine AS production
 
+# System deps
+RUN apk add --no-cache \
+    nginx \
+    supervisor \
+    curl \
+    git \
+    unzip \
+    libpq-dev \
+    oniguruma-dev \
+    libzip-dev \
+    && docker-php-ext-install pdo pdo_mysql mbstring zip opcache
 
-# Stage 2 - Backend
-FROM php:8.2-fpm AS backend
-
-RUN apt-get update && apt-get install -y \
-    git curl unzip libpq-dev libonig-dev libzip-dev zip \
-    && docker-php-ext-install pdo pdo_mysql mbstring zip
-
+# Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-WORKDIR /var/www
+WORKDIR /var/www/html
+
+# Copy app source
 COPY . .
-COPY --from=frontend /app/public/dist ./public/dist
 
-RUN composer install --no-dev --optimize-autoloader
+# Copy compiled assets from Stage 1
+COPY --from=frontend /app/public/build ./public/build
 
-RUN php artisan config:clear && \
-    php artisan route:clear && \
-    php artisan view:clear
+# Install PHP deps
+RUN composer install --no-dev --optimize-autoloader --no-interaction
 
-CMD ["php-fpm"]
+# Permissions
+RUN chown -R www-data:www-data /var/www/html \
+    && chmod -R 755 /var/www/html/storage \
+    && chmod -R 755 /var/www/html/bootstrap/cache
+
+# Copy config files
+COPY docker/nginx.conf /etc/nginx/nginx.conf
+COPY docker/supervisord.conf /etc/supervisord.conf
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 80
+
+ENTRYPOINT ["/entrypoint.sh"]
