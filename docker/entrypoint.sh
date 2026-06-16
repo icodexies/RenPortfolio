@@ -15,5 +15,8 @@ php artisan view:cache
 echo "→ Running migrations..."
 php artisan migrate --force
 
+echo "→ Testing nginx config..."
+nginx -t
+
 echo "→ Starting services..."
 exec /usr/bin/supervisord -c /etc/supervisord.conf
