@@ -95,11 +95,10 @@ const isActive = (routeName) => {
           <a @click="isMobileMenuOpen = false" :href="route('home')"      class="block px-4 py-2.5 rounded-md text-base font-medium text-slate-300 hover:bg-white/[0.06] hover:text-white transition-colors">Home</a>
           <a @click="isMobileMenuOpen = false" :href="route('project')"   class="block px-4 py-2.5 rounded-md text-base font-medium text-slate-300 hover:bg-white/[0.06] hover:text-white transition-colors">Projects</a>
           <a @click="isMobileMenuOpen = false" :href="route('techStack')" class="block px-4 py-2.5 rounded-md text-base font-medium text-slate-300 hover:bg-white/[0.06] hover:text-white transition-colors">Tech Stack</a>
-          <a @click="isMobileMenuOpen = false" :href="route('resume')"    class="block px-4 py-2.5 rounded-md text-base font-medium text-slate-300 hover:bg-white/[0.06] hover:text-white transition-colors">Contact</a>
           <div class="pt-4 pb-2 border-t border-white/[0.06] mt-2 px-4">
             <a
               @click="isMobileMenuOpen = false"
-              href="#contact"
+              :href="route('resume')"
               class="block w-full text-center bg-gradient-to-r from-orange-500 via-rose-500 to-indigo-600 text-white font-bold py-2.5 rounded-md shadow-md shadow-rose-500/10"
             >
               Let's Connect

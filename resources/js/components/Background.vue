@@ -16,16 +16,13 @@ import { onMounted, onUnmounted, ref } from 'vue'
 const props = defineProps({
   galaxies: {
     type: Array,
-    default: () => [
-      { x: 0.5, y: 0.5, hue: 260, size: 1 }
-    ]
+    default: () => [{ x: 0.5, y: 0.5, hue: 260, size: 1 }]
   }
 })
 
 const canvasRef = ref(null)
 
 // ─── Quality tiers ──────────────────────────────────────────────────────
-// `animate: false` means: render one static frame and never start the loop.
 const TIERS = {
   high:   { starCount: 180, pointsPerArm: 130, nebulaCount: 3, dprCap: 1.5, shootingStars: true,  animate: true },
   medium: { starCount: 90,  pointsPerArm: 60,  nebulaCount: 1, dprCap: 1,   shootingStars: true,  animate: true },
@@ -34,12 +31,10 @@ const TIERS = {
 
 function detectInitialTier() {
   if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return 'low'
-
   const cores = navigator.hardwareConcurrency || 4
-  const mem = navigator.deviceMemory // undefined on iOS Safari, that's fine
+  const mem = navigator.deviceMemory
   const isTouchDevice = window.matchMedia?.('(pointer: coarse)').matches
   const saveData = navigator.connection?.saveData
-
   if (saveData) return 'low'
   if (isTouchDevice && (cores <= 4 || (mem !== undefined && mem <= 4))) return 'medium'
   if (cores <= 2) return 'low'
@@ -55,16 +50,16 @@ onMounted(() => {
   let tierName = detectInitialTier()
   let tier = TIERS[tierName]
 
-  // ─── Live FPS sampling to auto-downgrade if the device is struggling ───
+  // ─── Live FPS sampling to auto‑downgrade if struggling ────────────────
   let frameCount = 0
   let benchmarkStart = performance.now()
-  let benchmarkDone = tierName === 'low' // no need to benchmark if already lowest
+  let benchmarkDone = tierName === 'low'
 
   function sampleFrame(now) {
     frameCount++
     if (benchmarkDone) return
     const elapsed = now - benchmarkStart
-    if (elapsed >= 1200) { // after ~1.2s, judge actual fps
+    if (elapsed >= 1200) {
       const fps = (frameCount / elapsed) * 1000
       benchmarkDone = true
       if (fps < 30 && tierName !== 'low') {
@@ -179,7 +174,6 @@ onMounted(() => {
         glowCtx.fillRect(0, 0, W, H)
       }
 
-      // core glow baked into the static layer too on low/medium (no mouse parallax there)
       if (!tier.animate) {
         const glowR = glowCtx.createRadialGradient(gx, gy, 0, gx, gy, 60 * sizeMult)
         glowR.addColorStop(0, 'rgba(255,230,180,0.9)')
@@ -197,9 +191,10 @@ onMounted(() => {
   const resizeCanvas = () => {
     const dpr = Math.min(window.devicePixelRatio || 1, tier.dprCap)
     const parent = canvas.parentElement
-
     W = parent.clientWidth
     H = parent.clientHeight
+
+    if (W === 0 || H === 0) return // skip until the parent has a real size
 
     canvas.width = W * dpr
     canvas.height = H * dpr
@@ -214,12 +209,12 @@ onMounted(() => {
     if (newTierName === tierName) return
     tierName = newTierName
     tier = TIERS[tierName]
-    resizeCanvas() // rebuild everything at the new tier's settings
+    resizeCanvas()
 
     if (!tier.animate && animationFrameId) {
       cancelAnimationFrame(animationFrameId)
       animationFrameId = null
-      render() // draw one final static frame
+      render()
     } else if (tier.animate && !animationFrameId) {
       animationFrameId = requestAnimationFrame(render)
     }
@@ -268,7 +263,7 @@ onMounted(() => {
     ctx.globalAlpha = 1
     ctx.drawImage(glowCanvas, 0, 0, W, H)
 
-    if (!tier.animate) return // static tier: one frame, nothing else to draw
+    if (!tier.animate) return
 
     const mcx = mouse.x ?? W / 2
     const mcy = mouse.y ?? H / 2
@@ -366,17 +361,35 @@ onMounted(() => {
   }
   document.addEventListener('visibilitychange', handleVisibility)
 
-  window.addEventListener('resize', resizeCanvas)
-  resizeCanvas()
-
-  if (tier.animate) {
-    animationFrameId = requestAnimationFrame(render)
+  // ─── ResizeObserver ensures particles appear even if layout is delayed ────
+  const parent = canvas.parentElement
+  let resizeObserver = null
+  if (window.ResizeObserver) {
+    resizeObserver = new ResizeObserver(() => {
+      resizeCanvas()
+    })
+    resizeObserver.observe(parent)
   } else {
-    render() // one static frame, no loop
+    window.addEventListener('resize', resizeCanvas)
   }
 
+  // Initial draw – if dimensions are already available, draw immediately
+  // Otherwise the observer will fire when the parent gets its size
+  requestAnimationFrame(() => {
+    resizeCanvas()
+    if (tier.animate) {
+      if (!animationFrameId) animationFrameId = requestAnimationFrame(render)
+    } else {
+      render()
+    }
+  })
+
   onUnmounted(() => {
-    window.removeEventListener('resize', resizeCanvas)
+    if (resizeObserver) {
+      resizeObserver.disconnect()
+    } else {
+      window.removeEventListener('resize', resizeCanvas)
+    }
     window.removeEventListener('mousemove', handleMouseMove)
     window.removeEventListener('mouseleave', handleMouseLeave)
     document.removeEventListener('visibilitychange', handleVisibility)
