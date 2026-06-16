@@ -8,7 +8,8 @@ RUN npm install
 
 COPY . .
 
-RUN npm run build
+# Fix: increase Node memory for Vite/Rolldown build (important for Render)
+RUN NODE_OPTIONS="--max-old-space-size=4096" npm run build
 
 
 # Stage 2 - Backend (Laravel + PHP + Composer)
@@ -24,16 +25,16 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www
 
-# Copy app files
+# Copy backend files
 COPY . .
 
-# Copy built frontend from Stage 1
+# Copy built frontend assets
 COPY --from=frontend /app/public/dist ./public/dist
 
 # Install PHP dependencies
 RUN composer install --no-dev --optimize-autoloader
 
-# Laravel setup (safe in production builds)
+# Laravel cleanup (safe for production builds)
 RUN php artisan config:clear && \
     php artisan route:clear && \
     php artisan view:clear
